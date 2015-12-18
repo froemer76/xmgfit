@@ -1,0 +1,332 @@
+#!/bin/sh
+###############################################################################
+#
+# XmgFit V.1.0
+# ------------
+#
+# Usage:
+#   xmgfit <file> <equation> [options]
+#
+# Type xmgfit -h | --help for more information or inspect the README.
+#
+#==============================================================================
+#
+# This software was written by Frank Roemer and 
+# is distributed under the following terms (MIT License):
+#
+# Copyright (c) 2013 Frank Roemer
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+###############################################################################
+
+# default values
+#--------------------------------------------------------------------
+me=$(basename $0); version='1.0'
+xcol='1'; ycol='2'; tol='1e-5'; iter='20'
+
+
+# local functions
+#--------------------------------------------------------------------
+
+# set positional agruments: file & equation
+set_positional_args() {
+	if [ ! $infile ]; then
+		infile="$1"
+	elif [ ! $equation ]; then
+		equation="$1"
+	fi
+}
+
+# help message
+printHelp () {
+   cat << EOF
+
+ Usage: 
+   $me <file> <equation> [options]
+   $me -h | --help
+   $me --version
+   
+ Options:
+   -x <col>, --ycol <col>        no. of x-column in file (default: $xcol)
+   -y <col>, --vcol <col>        no. of y-column in file (default: $ycol)
+   -p <file>, --png <file>       define name for png file for output
+   -t <val>, --tolerance <val>   tolerance (default: $tol)
+   -n <val>, --iterations <val>  number of iterations (default: $iter)
+   -i, --interactive             open xmgrace for interactive use
+   -s, --scripty                 print result in EVALuable format
+
+   --vopt <str>   variable options: set inital guesses and bounds
+   --xmin <val>   ignore data points for x < val
+   --xmax <val>   ignore data points for x > val
+   --ymin <val>   ignore data points for y < val
+   --ymax <val>   ignore data points for y > val
+
+   --version    print version information and exit
+   -h, --help   display this help and exit
+
+EOF
+}
+
+# print version information
+printVersion (){
+	cat << EOF
+
+XmgFit version $version
+
+Copyright (c) 2013 by Frank Roemer
+XmgFit comes with ABSOLUTELY NO WARRANTY.
+You may redistribute copies of XmgFit under the terms of the MIT License (MIT).
+
+EOF
+}
+
+# delete tmp files
+deleteTmpFiles(){
+	rm $xmgscr $xmgerr
+}
+
+
+# main program
+#--------------------------------------------------------------------
+
+# check if xmgrace is available
+type xmgrace >/dev/null 2>&1 || { \
+	echo >&2 "Error! I require 'xmgrace' but it's not installed. Aborting."; \
+	exit 79; }
+	
+# read in command line options
+while [ "$1" ]; do
+   case $1 in
+    '-p'|'--png') pngout=$2; shift ;;
+    '-i'|'--interactive') xmg=true;;
+    '-s'|'--scripty') scripty=true;;
+    '-x'|'--xcol') xcol=$2; shift ;;
+    '-y'|'--ycol') ycol=$2; shift ;;
+    '-t'|'--tolerance') tol=$2; shift ;;
+    '-n'|'--iterations') iter=$2; shift ;;
+    '--xmin') rxmin=$2; shift ;;
+    '--xmax') rxmax=$2; shift ;;
+    '--ymin') rxmin=$2; shift ;;
+    '--ymax') rxmax=$2; shift ;;
+    '--vopt') vopts=$2; shift ;;
+    '--verbose') verb=true;;
+    '--version') printVersion; exit 0;;
+    '-h'|'--help') printHelp; exit 0;;
+    *) set_positional_args $1
+   esac
+   shift
+done
+
+# check data input file
+if [ ! -s $infile ] && [ ! -r $infile ]; then
+	echo >&2 "Error! Data input file ($infile) not found, empty or not readable."
+	exit 80	
+fi
+
+# check equation and count variables
+nvars=0
+for i in $(seq 0 1 9);do
+	if [ $(echo $equation | grep -o a$i | wc -w) -gt 0 ]; then
+		if [ $nvars -ne $i ]; then
+			echo >&2 "Syntax error in equation!"
+			exit 81
+		fi
+		nvars=$(($nvars+1))
+	fi
+done
+if [ $nvars -eq 0 ]; then
+	echo >&2 "Error: no variable(s) defined!"
+	exit 81
+fi
+
+# create tmp files
+xmgscr=$(mktemp -t gfit_xmgscr.XXXXXXXXXX)
+xmgerr=$(mktemp -t gfit_xmgerr.XXXXXXXXXX)
+
+# handle restriction to region x/ymin/max for fit
+if [ $rxmin$rxmax$rymin$rymax ]; then
+	[ ! $rxmin ] && rxmin='axmin'
+	[ ! $rxmax ] && rxmax='axmax'
+	[ ! $rymin ] && rymin='aymin'
+	[ ! $rymax ] && rymax='aymax'
+cat >> $xmgscr << EOF
+	define axmin
+	define axmax
+	define aymin
+	define aymax
+	axmin = min(s0.x)
+	axmax = max(s0.x)
+	aymin = min(s0.y)
+	aymax = max(s0.y)
+	r0 on
+	link r0 to g0
+	r0 type polyi
+	r0 linestyle 3
+	r0 linewidth 2.0
+	r0 color 3
+	r0 xy $rxmin, $rymin
+	r0 xy $rxmin, $rymax+10e-10
+	r0 xy $rxmax+10e-10, $rymax+10e-10
+	r0 xy $rxmax+10e-10, $rymin
+	copy s0 to s2
+	restrict (s0, r0, off)
+EOF
+fi
+
+# write 1st part of fit options to xmgrace script
+echo "fit formula \"y = $equation\"" >> $xmgscr
+echo "fit with $nvars parameters" >> $xmgscr
+echo "fit prec $tol" >> $xmgscr
+
+# scan variable options (-vopt) & add to xmgrace script
+nvopts=$(($(echo $vopts | grep -o ';' | wc -w)+1))
+for i in $(seq 1 1 $nvopts); do
+	vid=$(echo $vopts | cut -d';' -f$i | cut -d'=' -f1 | cut -c2)
+	voptids="${voptids}$vid"
+done
+for i in $(seq 1 1 $nvars);do
+	vid=$(($i-1))
+	if [ $(echo $voptids | grep -o $vid | wc -w) -eq 0 ];then
+		echo "a$vid = 1" >> $xmgscr
+		echo "a$vid constraints off" >> $xmgscr
+	else
+		p=$(echo $voptids | fold -w 1 | grep -n $vid | cut -d':' -f1)
+            #p=$(echo $voptids | fold -w 1 | grep -n $vid)
+		vopt=$(echo $vopts | cut -d';' -f${p} | cut -d'=' -f2)
+		if [ $(echo $vopt | grep -o ',' | wc -w) -lt 1 ];then
+			if [ ! $vopt ]; then
+				vopterr=$vid
+			fi
+			echo "a$vid = $vopt" >> $xmgscr
+			echo "a$vid constraints off" >> $xmgscr
+		else
+			h0=$(echo $vopt | cut -d',' -f1)
+			h1=$(echo $vopt | cut -d',' -f2)
+			h2=$(echo $vopt | cut -d',' -f3)
+			if [ ! $h0 ] || [ ! $h1 ] || [ ! $h2 ]; then
+				vopterr=$vid
+			fi
+			echo "a$vid = $h0" >> $xmgscr
+			echo "a$vid constraints on" >> $xmgscr
+			echo "a${vid}min = $h1" >> $xmgscr
+			echo "a${vid}max = $h2" >> $xmgscr
+		fi
+	fi
+done
+if [ $vopterr ]; then
+	echo >&2 "Error in variable option (--vopt) string near by a$vopterr: '$vopts'."
+	exit 82
+fi
+
+# generate xmgrace script
+cat >> $xmgscr << EOF
+	nonlfit(s0,$iter)
+	copy s0 to s1
+	s1.y = $equation
+	autoscale
+	xaxis  bar linewidth 2.0
+	xaxis  label "x"
+	xaxis  tick major linewidth 2.0
+	xaxis  tick minor linewidth 2.0
+	xaxis  label char size 2.000000
+	xaxis  ticklabel char size 1.500000
+	yaxis  bar linewidth 2.0
+	yaxis  label "y"
+	yaxis  label char size 2.000000
+	yaxis  tick major linewidth 2.0
+	yaxis  tick minor linewidth 2.0
+	yaxis  ticklabel char size 1.500000
+	s0 legend  "data"
+	s0 symbol 1
+	s0 symbol size 1.000000
+	s0 symbol color 1
+	s0 symbol pattern 1
+	s0 symbol fill color 1
+	s0 symbol fill pattern 1
+	s0 symbol linewidth 1.0
+	s0 symbol linestyle 1
+	s0 line type 0
+	s1 legend  "fit"
+	s1 symbol 0
+	s1 line type 1
+	s1 line linestyle 1
+	s1 line linewidth 2.0
+	s1 line color 2
+	s1 line pattern 1
+	s2 symbol 1
+	s2 symbol size 1.000000
+	s2 symbol color 1
+	s2 symbol pattern 1
+	s2 symbol fill color 1
+	s2 symbol fill pattern 0
+	s2 symbol linewidth 2.0
+	s2 symbol linestyle 1
+	s2 line type 0
+	with g0
+	subtitle "fit y = $equation"
+	view 0.200000, 0.150000, 1.150000, 0.850000
+	print to "$pngout"
+	hardcopy device "PNG"
+	device "PNG" font antialiasing on
+EOF
+
+# execute xmgace
+if [ $xmg ]; then
+	lsout=$(xmgrace -block $infile -bxy ${xcol}:${ycol} -param $xmgscr 2> $xmgerr)
+elif [ $pngout ]; then
+	lsout=$(xmgrace -block $infile -bxy ${xcol}:${ycol} -param $xmgscr -hardcopy 2> $xmgerr)
+else
+	lsout=$(xmgrace -block $infile -bxy ${xcol}:${ycol} -param $xmgscr -hardcopy -noprint 2> $xmgerr)
+fi
+
+# check for grace errors
+if [ -s $xmgerr ]; then
+	echo >&2 "-------- Grace error! --------"
+	nl=$(cat $xmgerr | wc -l)
+	head -n $(($nl/3)) $xmgerr >&2
+	echo >&2 "------------------------------"
+	deleteTmpFiles
+	exit 90
+fi
+
+# output the result
+if [ ! $scripty ]; then
+	echo
+	echo "$lsout"
+	echo
+else
+	ChiSq=$(echo "$lsout" | grep Chi-square | cut -d':' -f2 | cut -c2-)
+	CorC=$(echo "$lsout" | grep Correlation | cut -d':' -f2 | cut -c2-)
+	RMS=$(echo "$lsout" | grep RMS | cut -d':' -f2 | cut -c2-)
+	TheilU=$(echo "$lsout" | grep Theil | cut -d':' -f2 | cut -c2-)
+	out="_ChiSq=$ChiSq;_CorC=$CorC;_RMS=$RMS;_TheilU=$TheilU"
+	for i in $(seq 1 1 $nvars);do
+		vid=$(($i-1))
+		h=$(echo "$lsout" | grep a$vid | cut -d'=' -f2)
+		h=$(echo $h | tr "\n" " " | cut -d' ' -f3)
+		out="$out;_a$vid=$h"
+	done
+	echo $out
+fi
+
+# cleanup & exit
+deleteTmpFiles
+exit 0
+	

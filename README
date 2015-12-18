@@ -1,0 +1,216 @@
+************************************************************************
+******************************  XmgFit  ********************************
+************************************************************************
+                                                            Dec. 7. 2013
+CONTENTS:
+
+- CONCEPT
+- FILES
+- INSTALLATION
+- USAGE
+- ERROR HANDLING
+- HISTORY
+- COPYRIGHT & LICENCE
+									
+************************************************************************
+
+CONCEPT
+
+XmgFit is a wrapper for Xmgrace (*) allowing to use comfortable the non-
+linear curve fitting capability of Xmgrace from the command line.
+Therefore the capabilities are limited by xmgrace. Please refer to the
+xmgrace users guide for more details.
+
+It is also handy to incorporate in shell scripts. The -s or --scripty
+option returns all result values xmgrace provide in an EVALuable format
+to make them easy available in shell scripts.
+
+*) http://plasma-gate.weizmann.ac.il/Grace/
+
+
+************************************************************************
+
+FILES
+
+  xmgfit       main shell script
+  test.sh      shell script checks if xmgfit works properly
+  example.sh   shell script providing an example how to integrate xmgfit
+  linear.dat   example data set for a linear fit
+  square.dat   example data set for a 2nd order polynomial fit
+  README       this file
+
+
+************************************************************************
+
+INSTALLATION
+
+ 0. Requirements:
+    
+    The script is written to be interpreted with the Bourne shell (sh),
+    which is in general available on all Unix/Linux platforms.
+    Despite the standard command line tools (cat, tail,...) the only
+    dependency is 'Xmgrace' obviously.
+    
+    
+ 1. Installation:
+    
+    Just copy the 'xmgfit' file in a folder which is included in your
+    $PATH, or add the folder to the $PATH variable.
+
+									
+************************************************************************
+
+USAGE
+
+ 0. General:
+ 
+    xmgfit <file> <equation> [options]
+
+    The <file> must be readable and contain the data in a format compatible
+    to xmgrace. The <equation> follows the same rules like in the respective
+    dialogue of xmgrace, e.g. 'a0+a1*x+a2*x^2'.
+    Please consult the xmgrace users guide about the syntax, operators and
+    functions.
+
+ 0.1. Options:
+
+      -x <col>, --ycol <col>
+      -y <col>, --vcol <col>
+      Define the number of the column in the input file.
+      (default: -x 1 -y 2)
+
+      -p <file>, --png <file>
+      Produces as an aditional output a png containing your fit.
+
+      -t <val>, --tolerance <val>
+      Tolerance (default: 1e-5)
+      
+      -n <val>, --iterations <val>
+      Number of iterations (default: 20)
+
+      -i, --interactive
+      Open xmgrace with the fit for interactive use.
+
+      -s, --scripty
+      The usual (xmgrace) output is replaced by an EVALuable string, like:
+      '_ChiSq=4944.18;_CorC=0.997348;_RMS=0.122492;...'.
+      The whole result set of the fitting procedure is so available in the  
+      shell script for further manipulation, see example.sh.
+
+      --vopt 'a#=<init_value>[,<low_bound>,<up_bound>][;a#=...][;...]'
+      Set the initial guess and optional restrict variable to a range.
+
+      --xmin <val>, --xmax <val>
+      --ymin <val>, --ymax <val>
+      Restrict the data points which will be used for the fit to a range.
+    
+    
+ 1. Examples:
+ 
+ 1.1  A simple fit from the command line:
+      
+      You have a file containing x,y-data points suitable for xmgrace,
+      like e.g. square.dat:
+      
+              X          Y
+      -2.4000e+00 1.0483e+02
+      -1.6158e+00 6.6882e+01
+      -8.3158e-01 5.9179e+01
+      -4.7368e-02 1.0368e+02
+       7.3684e-01 8.8400e+01
+       1.5211e+00 9.5487e+01
+       ...
+       
+       To fit a polynomial function of 2nd order we type on the shell:
+       
+       xmgfit square.dat 'a0+a1*x+a2*x^2'
+       
+       The output will be the as in xmgrace:
+
+       Fitting with formula: y = a0+a1*x+a2*x^2
+       Initial guesses:
+       	a0 = 1
+       	a1 = 1
+       	a2 = 1
+       Tolerance = 1e-05
+       Relative error in the sum of squares is at most tol.
+       Computed values:
+       	a0 = 63.4911
+       	a1 = 4.15215
+       	a2 = 3.98625
+
+       Chi-square: 4839.29
+       Correlation coefficient: 0.997358
+       RMS relative error: 0.129001
+       Theil U coefficent: 0.045383
+ 	 
+
+ 1.1  How to integrate fit in a shell script:
+
+      Like shown in example.sh, we can directly evaluate the output of
+      xmgfit if we use the -s or --scripty option:
+
+      eval $(./xmgfit linear.dat a0*x+a1 -s)
+
+      The result set is now available by shell variables (_ChiSq, _CorC, 
+      _RMS, _TheilU, _a0, _a1) and can be further processed like for
+      output:
+
+      echo "a0 = $_a0"
+      echo "a1 = $_a1"
+      echo "Chi-square: $_ChiSq"
+      echo "Correlation coefficient: $_CorC"
+      echo "RMS per cent error: $_RMS"
+      echo "Theil U coefficent: $_TheilU"
+
+
+
+************************************************************************
+
+ERROR HANDLING
+
+code	description
+----	-----------
+ 0    xmgfit ran successfully
+79    Xmgrace is not found/installed.
+80    Data input file not found, or is empty, or not readable.
+81    Syntax error in equation found.
+82    Error in variable option (--vopt) string.
+90    A GRACE error occurs.
+
+
+************************************************************************
+
+HISTORY
+
+0.9a  First non-public alpha release.
+1.0   First public release.
+
+
+************************************************************************
+
+COPYRIGHT & LICENCE
+
+This software was written by Frank Roemer and 
+is distributed under the following terms (MIT License):
+
+Copyright (c) 2013 Frank Roemer
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
